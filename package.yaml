@@ -30,3 +30,4 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - bytestring
+    - attoparsec
