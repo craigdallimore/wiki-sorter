@@ -4,94 +4,67 @@ module Main where
 
 import Prelude
 import qualified Data.ByteString.Char8 as B
-import Data.ByteString.Char8 (ByteString)
-import Data.Attoparsec.ByteString.Char8 ( Parser
-                                        , takeTill
-                                        , string
-                                        , skipSpace
-                                        , parse
-                                        , manyTill
-                                        , anyChar
-                                        )
-import qualified Data.Attoparsec.ByteString.Char8 as A
+import Text.Trifecta
+import Text.Trifecta.Combinators (lookAhead)
 
 fp :: FilePath
 fp = "/home/decoy/Documents/vimwiki/study/category-theory/terminology.md"
 
-type Modeline = ByteString
-type H1 = ByteString
-type H2 = ByteString
-data Entry = Entry H2 [ByteString]
+type Modeline = String
+type H1 = String
+type H2 = String
+data Entry = Entry H2 String
 data Wiki = Wiki Modeline H1 [Entry]
 
-b :: ByteString
-b = "# "
-
-bb :: ByteString
-bb = "## "
-
-n :: ByteString
-n = "\n"
-
-nn :: ByteString
-nn = "\n\n"
-
 instance Show Entry where
-  show (Entry h2 lines) = show all where
-    all = bb <> h2 <> n <> foldr (\acc l -> acc <> n <> l) mempty lines
+  show (Entry h2 lines) = "## " <> h2 <> "\n" <> lines
 
 instance Show Wiki where
-  show (Wiki modeline h1 entries) = show all where
-    all = modeline <> nn <> b <> h1 <> nn <> foldr (\acc e -> e <> nn) mempty entries
+  show (Wiki modeline h1 entries) = all where
+    all = modeline <> "\n\n" <>
+          "# " <> h1 <> "\n\n" <>
+          foldr (\e acc -> show e <> acc) mempty entries
+          <> show (length entries)
 
 isNewLine :: Char -> Bool
 isNewLine = (==) '\n'
 
 --------------------------------------------------------------------------------
 
+skipSpace :: Parser ()
+skipSpace = skipMany (oneOf "\n ")
+
 parseModeline :: Parser Modeline
 parseModeline = do
   x <- manyTill anyChar (string "\n")
-  return (B.pack x)
+  return x
 
-parseH1 :: Parser H2
-parseH1 = do
-  _ <- string "# "
-  heading <- takeTill isNewLine
-  return heading
+parseH1 :: Parser H1
+parseH1 = string "# " >> manyTill anyChar newline
 
 parseH2 :: Parser H2
-parseH2 = do
-  _ <- string "## "
-  heading <- takeTill isNewLine
-  return heading
+parseH2 = string "## " >> manyTill anyChar newline
 
-parseEntry :: Parser Entry
-parseEntry = do
-  h2 <- parseH2
-  return (Entry h2 [])
+parseLines :: Parser String
+parseLines = manyTill anyChar (lookAhead parseH2)
+
+newtype H2orOther = H2 | Other
+
+parseEntries :: Parser [Entry]
+parseEntries = do
+  content <- (H2 <$> try parseH2) <|> (Other <$> manyTill anyChar newline)
+
+  Entry <$> parseH2 <*> parseLines
 
 parseWiki :: Parser Wiki
 parseWiki = do
   modeline <- parseModeline
-  _ <- skipSpace
+  skipSpace
   h1 <- parseH1
-  return (Wiki modeline h1 [])
-
---------------------------------------------------------------------------------
-
-onSuccess :: Wiki -> IO ()
-onSuccess match = do
-  putStrLn "Success"
-  putStrLn (show match)
-
-onFail :: [String] -> String -> IO ()
-onFail contexts message = do
-  putStrLn "Fail"
-  putStrLn message
-
-onPartial :: IO ()
-onPartial = putStrLn "Partial"
+  skipSpace
+  -- entries <- many parseEntry
+  entries <- parseEntries
+  return (Wiki modeline h1 entries)
 
 --------------------------------------------------------------------------------
 
@@ -100,8 +73,7 @@ main = do
   putStrLn "Please provide a filename"
   name <- getLine
   file <- B.readFile fp
-  let res = parse parseWiki file
+  let res = parseString parseWiki mempty (B.unpack file)
   case res of
-    (A.Done rest match) -> onSuccess match
-    (A.Fail rest contexts message) -> onFail contexts message
-    _ -> onPartial
+    Success wiki -> putStrLn (show wiki)
+    Failure err -> print (_errDoc err)
