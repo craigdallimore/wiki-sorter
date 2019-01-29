@@ -31,3 +31,4 @@ executables:
     dependencies:
       - bytestring
       - trifecta
+      - raw-strings-qq
