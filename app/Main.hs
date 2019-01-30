@@ -4,22 +4,24 @@
 module Main where
 
 import Prelude
-import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString as B
+import qualified Data.ByteString.Char8 as BC
 import Control.Applicative ((<|>))
 import Text.Trifecta
 import Text.RawString.QQ
-
-fp :: FilePath
-fp = "/home/decoy/Documents/vimwiki/study/category-theory/terminology.md"
+import Data.List (sort)
+import qualified Data.Text as T
+import System.IO
+import System.Environment
 
 newtype Modeline = Modeline String deriving (Show)
 newtype H1 = H1 String deriving (Show)
-newtype H2 = H2 String deriving (Show)
-newtype Line = Line String deriving (Show)
-data Entry = Entry H2 String
+newtype H2 = H2 String deriving (Show, Eq)
+data Entry = Entry H2 String deriving (Eq)
 data Wiki = Wiki Modeline H1 [Entry]
 
-data LineOrH2 = IsLine Line | IsH2 H2
+instance Ord Entry where
+  compare (Entry (H2 a) _) (Entry (H2 b) _) = compare a b
 
 instance Show Entry where
   show (Entry (H2 h2) lines) = "## " <> h2 <> "\n" <> lines
@@ -27,9 +29,8 @@ instance Show Entry where
 instance Show Wiki where
   show (Wiki (Modeline modeline) (H1 h1) entries) = all where
     all = modeline <> "\n\n" <>
-          "# " <> h1 <> "\n\n" <>
-          foldr (\e acc -> show e <> acc) mempty entries
-          <> "Number of entries:" <> show (length entries)
+          "# " <> h1 <>
+          foldr (\e acc -> "\n\n" <> show e <> acc) mempty entries
 
 --------------------------------------------------------------------------------
 
@@ -66,9 +67,11 @@ parseEntry = do
   lines <- many (notFollowedBy parseH2 >> anyChar)
   return $ Entry h2 lines
 
--- Think, what do we want?
--- We want to capture `many anyChar` lines,
--- but stop caturing after arriving at an h2 line
+processEntries :: [Entry] -> [Entry]
+processEntries = sort . map stripline
+  where
+    stripline (Entry h2 lines) = Entry h2 (strip' lines)
+    strip' = T.unpack . T.strip . T.pack
 
 parseWiki :: Parser Wiki
 parseWiki = do
@@ -76,16 +79,26 @@ parseWiki = do
   skipNewlines
   h1 <- parseH1
   entries <- many (skipNewlines >> parseEntry)
-  return (Wiki modeline h1 entries)
+  return (Wiki modeline h1 (processEntries entries))
 
 --------------------------------------------------------------------------------
 
 main :: IO ()
 main = do
-  putStrLn "Please provide a filename"
-  name <- getLine
-  file <- B.readFile fp
-  let res = parseString parseWiki mempty (B.unpack file)
-  case res of
-    Success wiki -> putStrLn (show wiki)
-    Failure err -> print (_errDoc err)
+  args <- getArgs
+  case args of
+    [filename] -> do
+      inputHandle <- openFile filename ReadMode
+      hSetEncoding inputHandle utf8
+      fileContent <- hGetContents inputHandle
+      let res = parseString parseWiki mempty fileContent
+      case res of
+        Success wiki -> do
+          outputHandle <- openFile filename WriteMode
+          hSetEncoding outputHandle utf8
+          hPutStr outputHandle (show wiki)
+          hClose inputHandle
+          hClose outputHandle
+        Failure err -> print (_errDoc err)
+    [] -> do
+      putStrLn "No file specified"

@@ -32,3 +32,4 @@ executables:
       - bytestring
       - trifecta
       - raw-strings-qq
+      - text
